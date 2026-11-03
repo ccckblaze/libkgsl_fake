@@ -1,0 +1,1 @@
+64113107ee8c2d6218236ad13b87707b1e1a01f929c107c6e8e230ec51dbbbb4  bytes=4220  kernel=e2x(tests/kernels/e2x.cl)  device=a6xx  source=recorded on real hardware, bit-identical across fake device and tinygrad QCOMCompiler

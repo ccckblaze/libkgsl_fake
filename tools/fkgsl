@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Inject the fake GPU into one command. Not a daemon: it only affects the process tree it launches.
+#
+# usage: fkgsl [options] -- command [args...]
+#   --lenient      turn strict off (unrecorded ioctls / real device fd leaks are logged, not fatal)
+#   --abort-exec   abort the moment a GPU_COMMAND arrives (proves a flow needs no GPU)
+#   --real         pass everything through, for a real-GPU comparison run
+#   --rec          use the recorder instead (copies without deceiving; needs a real GPU)
+#   --log FILE     where the log goes (default /tmp/libkgsl_fake.log)
+#   --props FILE   override the embedded table with another device self-description
+set -euo pipefail
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(dirname "$here")
+lib="$root/build/libkgsl_fake.so"
+rec="$root/build/libkgsl_rec.so"
+
+strict=1 exec_mode=stub disable=0 mode=fake log="" props=""
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --lenient) strict=0 ;;
+    --strict) strict=1 ;;
+    --abort-exec) exec_mode=abort ;;
+    --allow-exec) exec_mode=stub ;;
+    --real) disable=1 ;;
+    --rec) mode=rec ;;
+    --log) shift; log="$1" ;;
+    --props) shift; props="$1" ;;
+    --) shift; args=("$@"); break ;;
+    -*) echo "unknown option: $1" >&2; exit 2 ;;
+    *) args=("$@"); break ;;
+  esac
+  shift
+done
+[ ${#args[@]} -gt 0 ] || { echo "usage: fkgsl [options] -- command ..." >&2; exit 2; }
+
+if [ "$mode" = rec ]; then
+  [ -f "$rec" ] || { echo "run make first (missing ${rec})" >&2; exit 1; }
+  exec env LD_PRELOAD="$rec" ${log:+FK_REC_OUT="$log"} "${args[@]}"
+fi
+[ -f "$lib" ] || { echo "run make first (missing ${lib})" >&2; exit 1; }
+if [ "$disable" = 1 ]; then
+  echo "fkgsl: pass-through mode, what follows uses the real GPU" >&2
+  exec env LD_PRELOAD="$lib" FK_DISABLE=1 "${args[@]}"
+fi
+exec env LD_PRELOAD="$lib" FK_STRICT="$strict" FK_EXEC="$exec_mode" \
+  ${log:+FK_LOG="$log"} ${props:+FK_PROPS="$props"} FK_VERBOSE=1 "${args[@]}"
